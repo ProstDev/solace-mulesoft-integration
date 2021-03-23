@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="8e290e1b-4d9d-456c-b1eb-d04a7b2a7315" >
+		<salesforce:cached-basic-connection username="${sfdc.username}" password="${sfdc.password}" securityToken="${sfdc.token}" />
+	</salesforce:sfdc-config>
+	<flow name="solace-jms-subscribeFlow" doc:id="9cd087aa-8689-4675-b99f-e960506a5ceb" >
+		<jms:listener doc:name="On New Message" doc:id="f7528d38-91d8-45a3-abeb-9ce54b853970" config-ref="JMS_Config" destination="${solace.jms.destinationQueue}" ackMode="MANUAL" numberOfConsumers="1">
+			<jms:consumer-type >
+				<jms:queue-consumer />
+			</jms:consumer-type>
+			<jms:response sendCorrelationId="ALWAYS" />
+		</jms:listener>
+		<logger level="INFO" doc:name="Logger - Received the message from the Queue" doc:id="bf8b98c3-d248-41ac-a6ea-41157a5fde7d" message="Received the message from the Queue"/>
+		<set-variable value="#[attributes.ackId]" doc:name="Set Variable ackId" doc:id="a95f5ddf-4d63-42b8-aa54-aeae3bf697ba" variableName="ackId"/>
+		<set-variable value="#[%dw 2.0
+output application/java
+---
+attributes.properties.jmsxProperties.jmsxDeliveryCount]" doc:name="Store redelivery_count in a redelivery_count variable" doc:id="3b9c3b60-fb07-4266-8c97-11daefba1727" variableName="redelivery_count" />
+		<ee:transform doc:name="Request Transformation" doc:id="f0f6797a-ad07-4161-8610-ca1d64363d81">
+			<ee:message>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="transformedAccountRequest" ><![CDATA[%dw 2.0
+output application/json
+---
+payload map (items,index) ->{
+	Name: items.name,
+	BillingStreet:items.billingAddress,
+	BillingCity: items.billingCity,
+	BillingState: items.billingState,
+	BillingCountry: items.billingCountry,
+	BillingPostalCode: items.billingPostalCode
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<try doc:name="Try" doc:id="0aa1f09e-0927-4703-aa4d-e64894b497a3" >
+			<salesforce:create type="Account" doc:name="Create Account in SFDC" doc:id="f3c722dd-ea1f-4073-85e9-8ad1f9498055" config-ref="Salesforce_Config" >
+				<error-mapping targetType="SFDC:ERROR" />
+				<salesforce:records ><![CDATA[#[vars.transformedAccountRequest]]]></salesforce:records>
+			</salesforce:create>
+			<choice doc:name="Choice" doc:id="c199c784-5a26-4971-8337-3a811890d258" >
+				<when expression='#[payload[0].success == true]'>
+					<logger level="INFO" doc:name="Logger Received a positive response from SFDC" doc:id="fddaa920-b467-4ab9-b302-3ec6c9abf0bb" message="Received a positive response from SFDC"/>
+					<jms:ack doc:name="Positive Ack" doc:id="3967918a-cbdc-41c8-bccd-c5e805dcca94" ackId="#[vars.ackId]" />
+				</when>
+				<otherwise >
+					<logger level="ERROR" doc:name="Logger Error Occurred while creating Accounts in SFDC" doc:id="af46be01-becb-4d57-ab38-564020d60b7a" message="Error Occurred while creating Accounts in SFDC" />
+					<validation:is-true doc:name="Is true" doc:id="cefeb510-1c11-4b19-9e03-e8643ad3ac8d" message="The payload.success is false and hence account was not created in SFDC" expression="#[payload[0].success == true]">
+						<error-mapping targetType="SFDC:ERROR" />
+					</validation:is-true>
+				</otherwise>
+			</choice>
+			<error-handler >
+				<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="d63243f3-2b67-4cce-b331-52843eff83ba" type="SFDC:ERROR" >
+					<logger level="ERROR" doc:name="Logger Error Occurred while sending request to SFDC" doc:id="4d28dc9a-6fa4-43f0-a1fb-91063206d176" message="Error Occurred while sending request to SFDC"/>
+					<flow-ref doc:name="Flow Reference processSFDCError" doc:id="0925c9d7-3530-468c-ab64-b0f59d8553a4" name="processSFDCError"/>
+				</on-error-propagate>
+			</error-handler>
+		</try>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="ea52422b-40f2-40aa-be24-e41c3a0e097d" type="ANY                               " >
+				<logger level="ERROR" doc:name="Logger Error Occurred while transforming the data" doc:id="9159a591-d09d-4346-8f48-90fb710a1b55" message="Error Occurred while transforming the data"/>
+				<flow-ref doc:name="Flow Reference deadLetterTopic" doc:id="2486287a-efb3-45e5-867b-e6da8fc5823f" name="process-transformation-error"/>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+	<flow name="process-transformation-error" doc:id="1f015bea-1b0b-4c36-932f-f63cc95ad9c9" >
+<set-variable value="solace-jms-subscribe" doc:name="Set Variable flow" doc:id="f384b9fe-b4e5-4dc4-847e-b874610f2727" variableName="flow" />
+<set-variable value="#[Mule::p('solace.jms.deadLetterTopic')]" doc:name="Set Variable deadLetterTopic" doc:id="059599cf-2f07-4bcd-b74e-cd64f3eb60a3" variableName="deadLetterTopic" />
+<set-variable value="${solace.jms.maxRedeliveryCount}" doc:name="Set Variable redelivery_count to 3 to publish the message to DLQ" doc:id="43ec030a-669b-4596-ae4f-8d03e833c4a3" variableName="redelivery_count" />
+<jms:publish doc:name="Publish to DLQ" doc:id="2ca729aa-226e-42fe-b3ff-f130ac3815d2" config-ref="JMS_Config" destination="#[vars.deadLetterTopic]" destinationType="TOPIC" sendCorrelationId="ALWAYS" persistentDelivery="true">
+<jms:message>
+<jms:body ><![CDATA[#[vars.transformedAccountRequest]]]></jms:body>
+				<jms:properties><![CDATA[#[output application/java
+---
+      {
+          DELIVERYCOUNT: vars.redelivery_count,
+          MESSAGE:'Publishing message to Dead Letter Queue as there was an exception during Dataweave Transformation' default 'N/A',
+          EXCEPTIONDETAILS: attributes.properties.userProperties.EXCEPTIONDETAILS default 'Exception occured. Check logs for details'
+      }]]]></jms:properties>
+</jms:message>
+</jms:publish>
+<logger level="INFO" doc:name="Logger published to DLQ" doc:id="3a9283d4-a805-45ac-b059-a3a79706c3c1" message="published to DLQ"/>
+		<jms:ack doc:name="Ack the original message" doc:id="6235262a-5eed-43da-a021-1315d2b3d10b" ackId="#[vars.ackId]" />
+<error-handler >
+<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="f484df56-f5cb-4629-8232-ce296e0ed068" >
+<logger level="ERROR" doc:name="Logger Error Occurred while publishing to the DLQ after transformation error" doc:id="900bb0a3-0db3-42ba-b872-1d0dea6d25ee" message="Error Occurred while publishing to the DLQ after transformation error"/>
+				<ee:transform doc:name="Create error structure" doc:id="e46d7691-12b1-4ee7-a13e-8f1e4540cabb" >
+<ee:message >
+<ee:set-payload ><![CDATA[%dw 2.0
+output application/json encoding="UTF-8"
+---
+{
+message: 'Solace Publish Error to DLQ Topic after transformation error',
+details: error.description default " Error occured. Check log for details"
+}]]></ee:set-payload>
+</ee:message>
+<ee:variables />
+</ee:transform>
+</on-error-propagate>
+</error-handler>
+</flow>
+<flow name="processSFDCError" doc:id="f80405c8-3407-4f33-8639-4b6ed37c45cb" >
+<ee:transform doc:name="Transform Message Failure" doc:id="d22cf80a-6d2f-4eca-90e5-8a115dcd04dc" >
+<ee:message >
+<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+correlationId: correlationId,
+message: "Failure occurred while creating Accounts object in SFDC",
+details: error.description default "Check logs for more details"
+}]]></ee:set-payload>
+</ee:message>
+</ee:transform>
+<logger level="ERROR" doc:name="Logger Error while creating Account in SFDC" doc:id="bda31288-9a59-49e2-acc7-7f05547f2a2d" message="Error while creating Account in SFDC"/>
+		<flow-ref doc:name="Flow Reference sendNegativeAck" doc:id="5decf91a-7904-41e1-aec3-bbfb65dbd34b" name="sendNegativeAck"/>
+</flow>
+<flow name="sendNegativeAck" doc:id="14bb1915-f6ae-4b05-8273-0fe9f5f7a3cb" >
+<set-variable doc:name="Set Variable errorDesc" doc:id="075d3f45-edee-4e10-ac9f-fe47cc4f4944" variableName="errorDesc" value='#[%dw 2.0
+output application/json
+---
+payload.details]'/>
+<set-variable value='#[%dw 2.0
+output application/json
+---
+ now()]' doc:name="Set Variable errorTimestamp" doc:id="bea528a4-8095-455f-a7eb-e8cb13e103f0" variableName="errorTimestamp"/>
+<jms:publish doc:name="Publish to error queue for retry processing" doc:id="498f41ea-0a28-49e7-9aec-ef827c8dd436" config-ref="JMS_Config" destination="${solace.jms.errorDestination}" sendCorrelationId="ALWAYS" destinationType="TOPIC" persistentDelivery="true">
+<jms:message >
+<jms:body ><![CDATA[#[vars.transformedAccountRequest]]]></jms:body>
+<jms:properties ><![CDATA[#[output application/java
+---
+      {
+       DELIVERYCOUNT: vars.redelivery_count,
+       generalReportId: vars.generalReportId ,
+          EXCEPTIONDETAILS: vars.errorDesc as String,
+          TIMESTAMP: vars.errorTimestamp
+      }]]]></jms:properties>
+<jms:jmsx-properties jmsxDeliveryCount="#[vars.redelivery_count]"/>
+</jms:message>
+</jms:publish>
+<jms:ack doc:name="Ack the original message" doc:id="8176b91e-9126-465d-ab5d-1915f4cbd0e4" ackId="#[vars.ackId]" />
+<logger level="INFO" doc:name="Published the message to retry queue" doc:id="cbfdbe2d-ab38-4f72-a1c5-6d3d1dddc196" message="Published the message to retry queue"/>
+		<error-handler >
+<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="c211fcd5-9ec5-4082-a202-e2e68d7cbf5c" >
+<logger level="ERROR" doc:name="Error occured while retrying to transfer the message" doc:id="c1fa21f7-2f68-4aa5-a05f-55ba7c16f920" message="#[Error occured while trying to publish to retry topic.' ++ 'Message: '++ payload.^raw as String]"/>
+				<ee:transform doc:name="Create error structure" doc:id="42f158bc-5772-4c2d-a511-58d5fa7263f2" >
+<ee:message >
+<ee:set-payload ><![CDATA[%dw 2.0
+output application/json encoding="UTF-8"
+---
+{
+message: 'Solace Publish Error to retry Topic',
+details: error.description default " Error occured. Check log for details"
+}]]></ee:set-payload>
+</ee:message>
+<ee:variables />
+</ee:transform>
+<set-variable value="publishFailure" doc:name="Store templateName in emailTemplate variable" doc:id="f050f544-76cd-4290-a577-7b282f81442b" variableName="emailTemplate" />
+<set-variable value="sendNegativeAck" doc:name="Store Flow Name in variable" doc:id="187f8332-1a08-47e1-9534-08740e7ec50e" variableName="flowName" />
+</on-error-propagate>
+</error-handler>
+</flow>
+</mule>

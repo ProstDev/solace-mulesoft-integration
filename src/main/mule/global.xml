@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+<jms:config name="JMS_Config" doc:name="JMS Config" doc:id="353bfc7b-145f-4a20-bb4c-d67b90da2317" >
+<jms:generic-connection>
+<jms:caching-strategy >
+<jms:no-caching />
+</jms:caching-strategy>
+<jms:connection-factory >
+<jms:jndi-connection-factory connectionFactoryJndiName="${solace.jms.connectionFactoryJndiName}">
+<jms:name-resolver-builder jndiInitialContextFactory="${solace.jms.jndiInitialContextFactory}" jndiProviderUrl="${solace.jms.jndiProviderUrl}" >
+<jms:provider-properties >
+<jms:provider-property key="java.naming.security.principal" value="${solace.jms.username}" />
+<jms:provider-property key="java.naming.security.credentials" value="${solace.jms.password}" />
+<jms:provider-property key="Solace_JMS_VPN" value="${solace.jms.vpn}" />
+<jms:provider-property key="Solace_JMS_Authentication_Scheme" value="${solace.jms.authenticationScheme}" />
+<jms:provider-property key="Solace_JMS_SSL_TrustStore" value="${app.home}/keystores/${solace.jms.truststoreFileName}" />
+<jms:provider-property key="Solace_JMS_SSL_TrustStoreFormat" value="${solace.jms.truststoreFormat}" />
+<jms:provider-property key="Solace_JMS_SSL_TrustStorePassword" value="${solace.jms.truststorePassword}" />
+</jms:provider-properties>
+</jms:name-resolver-builder>
+</jms:jndi-connection-factory>
+</jms:connection-factory>
+</jms:generic-connection>
+</jms:config>
+	<configuration-properties doc:name="Configuration properties" doc:id="d90a648d-a2af-4f40-91fc-bca0d31ad87f" file="properties/${mule.env}.yaml" />
+</mule>

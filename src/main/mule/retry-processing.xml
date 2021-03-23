@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+xmlns:crypto="http://www.mulesoft.org/schema/mule/crypto" xmlns:anypoint-mq="http://www.mulesoft.org/schema/mule/anypoint-mq" xmlns:json-logger="http://www.mulesoft.org/schema/mule/json-logger" xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
+http://www.mulesoft.org/schema/mule/json-logger http://www.mulesoft.org/schema/mule/json-logger/current/mule-json-logger.xsd
+http://www.mulesoft.org/schema/mule/crypto http://www.mulesoft.org/schema/mule/crypto/current/mule-crypto.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+<sub-flow name="retry-processing-flow" doc:id="7397fe35-237c-4337-b936-8a51e47d59b5" >
+<logger level="INFO" doc:name="Logger" doc:id="f17c3748-13d9-4e14-8684-66ed7034f913" message="Started to retry the failed Message"/>
+		<set-variable value="#[attributes.ackId]" doc:name="Set Variable retryAckId" doc:id="eac1efc1-b3b2-4e90-970c-e0df8ea125ff" variableName="retryAckId" />
+<set-variable value="#[%dw 2.0
+output application/java
+---
+attributes.properties.jmsxProperties.jmsxDeliveryCount]" doc:name="Store redelivery_count in a redelivery_count variable" doc:id="f4197c01-f580-401e-a036-fc77501616f6" variableName="redelivery_count" />
+<set-variable value='#[attributes.properties.userProperties.EXCEPTIONDETAILS splitBy(",") default null]' doc:name="Set Variable exceptions_array" doc:id="589ab7a3-dadf-478e-abfc-e9d242d714fb" variableName="exceptions_array"/>
+<set-variable value='#[attributes.properties.userProperties.TIMESTAMP splitBy(",") default null]' doc:name="Set Variable timestamp_array" doc:id="5543ff87-4147-4c02-9e3c-04f6fecb4f5f" variableName="timestamp_array"/>
+<set-variable value="${solace.jms.maxRedeliveryCount}" doc:name="Store maxRedeliveryCount in maxRedeliveryCount variable" doc:id="18133819-ae0b-44b9-9305-68e1321fab55" variableName="maxRedeliveryCount" />
+<logger level="INFO" doc:name="Log redelivery_count" doc:id="d8c643bf-d457-40d0-8916-d81df348ff0c" message="#[&quot;#['redelivery_count :- ' ++ (vars.redelivery_count default 'N/A')]&quot;]"/>
+		<choice doc:name="Choice check the redelivery count is greater than max value" doc:id="2b4ed588-c043-425a-95c5-4768856a4acd">
+<when expression="#[vars.redelivery_count &gt;= vars.maxRedeliveryCount]">
+<jms:publish doc:name="Publish to DLQ" doc:id="971fa9dc-1ba0-4e55-bac3-7adf448fdb4c" config-ref="JMS_Config" destination="#[vars.deadLetterTopic]" sendCorrelationId="ALWAYS" persistentDelivery="true" destinationType="TOPIC">
+<jms:message>
+<jms:properties><![CDATA[#[output application/java
+---
+      {
+          DELIVERYCOUNT: vars.redelivery_count,
+          MESSAGE:'Publishing message to Dead Letter Queue as the maximum re-delivery attempts:' ++ (vars.maxRedeliveryCount default 'N/A') ++ ' is reached',
+          EXCEPTIONDETAILS: attributes.properties.userProperties.EXCEPTIONDETAILS default 'Exception occured. Check logs for details'
+      }]]]></jms:properties>
+</jms:message>
+</jms:publish>
+				<logger level="INFO" doc:name="Log Published the message to Dead Letter Queue as the maximum redelivery count is exceeded" doc:id="cd8f8994-a2af-433c-98c9-15c7881aa4a4" message="Published the message to Dead Letter Queue as the maximum redelivery count is exceeded"/>
+</when>
+<otherwise>
+<set-variable value="#[vars.redelivery_count +1]" doc:name="Set Variable incrementedRedeliveryCount" doc:id="aed6123e-5dc1-4844-a62a-e80c6b5fe9d1" variableName="incrementedRedeliveryCount" />
+<jms:publish doc:name="Publish to source Queue" doc:id="f6a6043d-29fa-4fce-af63-d8781f637d85" config-ref="JMS_Config" destination="#[vars.destinationTopic]" destinationType="TOPIC" sendCorrelationId="ALWAYS" persistentDelivery="true">
+<jms:message>
+<jms:properties><![CDATA[#[output application/java
+---
+      {
+          DELIVERYCOUNT: vars.incrementedRedeliveryCount,          
+          MESSAGE:'Publishing message to original queue - Attempt' ++ (vars.redelivery_count default 'N/A'),
+          EXCEPTIONDETAILS: attributes.properties.userProperties.EXCEPTIONDETAILS default 'Exception occured. Check logs for details',
+          TIMESTAMP: attributes.properties.userProperties.TIMESTAMP default now()
+      }]]]></jms:properties>
+<jms:jmsx-properties jmsxDeliveryCount="#[vars.incrementedRedeliveryCount]" />
+</jms:message>
+</jms:publish>
+				<logger level="INFO" doc:name="Log Published the message back to the source queue as the maximum redelivery count is not reached" doc:id="bed916dc-0097-45be-b1fc-8337d70b4154" message="Published the message back to the source queue as the maximum redelivery count is not reached"/>
+</otherwise>
+</choice>
+</sub-flow>
+<flow name="retry-flow" doc:id="6e9cfc61-632b-4fb4-9484-c3969b021808" >
+<jms:listener doc:name="On New Message on Error Destination" doc:id="462dc03b-d189-439b-b960-26ec481d9aa4" config-ref="JMS_Config" destination="${solace.jms.errorDestinationQueue}" ackMode="MANUAL" numberOfConsumers="1" >
+<jms:consumer-type >
+<jms:queue-consumer />
+</jms:consumer-type>
+<jms:response sendCorrelationId="ALWAYS" persistentDelivery="true" />
+</jms:listener>
+<set-variable doc:name="Set Variable flow" doc:id="9bfeef23-9047-48c2-a850-84423dab0cb8" variableName="flow" value="retry-flow"/>
+<set-variable value="#[Mule::p('solace.jms.destination')]" doc:name="Set Variable destinationTopic" doc:id="17e61937-aa12-444f-b315-e0b33d662966" variableName="destinationTopic" />
+<set-variable value="#[Mule::p('solace.jms.deadLetterTopic')]" doc:name="Set Variable deadLetterTopic" doc:id="92e48306-4342-40e6-b39d-1828f67ec943" variableName="deadLetterTopic" />
+<flow-ref doc:name="Flow Reference retry-processing-flow" doc:id="39717dd8-7a38-4235-86c2-d289b397dc54" name="retry-processing-flow" />
+<jms:ack doc:name="Ack with retryAckId" doc:id="b96562fe-bce5-4689-a294-a4f0f6230e6f" ackId="#[vars.retryAckId]" />
+<error-handler >
+<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="20236be3-cd04-47ac-b81a-132a39509d4f" >
+<logger level="ERROR" doc:name="Error Occurred while retrying to publish the failed message" doc:id="01134f38-b0f6-4a03-b4e2-7e47084ca8ce" message="#['Error occured while processing from retry queue.' ++ 'Message: '++ payload.^raw as String]"/>
+				<ee:transform doc:name="Create error structure" doc:id="03791b0f-47d7-4028-a574-1c1ab2e4385e" >
+<ee:message >
+<ee:set-payload ><![CDATA[%dw 2.0
+output application/json encoding="UTF-8"
+---
+{
+message: 'Retry Processing Error',
+details: error.description default " Error occured. Check log for details"
+}]]></ee:set-payload>
+</ee:message>
+<ee:variables />
+</ee:transform>
+<jms:ack doc:name="Ack with retryAckId" doc:id="2ad981d2-c748-41d3-b79f-e51f24c29049" ackId="#[vars.retryAckId]" />
+</on-error-propagate>
+</error-handler>
+</flow>
+</mule>
+

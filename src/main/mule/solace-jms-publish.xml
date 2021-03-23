@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:jms="http://www.mulesoft.org/schema/mule/jms"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="73f883a4-a6d4-4997-bca3-d81e4c4a308e" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<flow name="solace-jms-publishFlow" doc:id="4f11fc1e-9b91-4ac5-b27b-eeb01e6fcb80" >
+		<http:listener doc:name="Listener" doc:id="1f03627d-57f7-42ab-9224-626bbca55f28" config-ref="HTTP_Listener_config" path="/publish" outputMimeType="application/json"/>
+		<jms:publish doc:name="Publish to Solace Topic" doc:id="4a49d0f7-3274-46ee-abc3-b4c474c52bb8" config-ref="JMS_Config" destination="${solace.jms.destination}" destinationType="TOPIC" sendCorrelationId="ALWAYS" persistentDelivery="true"/>
+		<ee:transform doc:name="Response" doc:id="4ede2b51-a560-45bf-af4a-f0df19a9bfbc" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"message": "published the message to Solace Topic successfully"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger Published the message to the TOPIC successfully" doc:id="7d199655-4606-452c-8551-d67e1f41fd65" message="Published the message to the TOPIC successfully"/>
+	</flow>
+</mule>

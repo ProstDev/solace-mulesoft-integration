@@ -1,0 +1,25 @@
+solace:
+  jms:
+    connectionFactoryJndiName: "/jms/cf/default"
+    jndiInitialContextFactory: "com.solacesystems.jndi.SolJNDIInitialContextFactory"
+    jndiProviderUrl: "tcps://mr1trp1uapetqj.messaging.solace.cloud:55443"
+    vpn: "sol-aws-dev"
+    username: "solace-cloud-client"
+    password: "Add password from Solace Cloud Messaging Service"
+    authenticationScheme: "AUTHENTICATION_SCHEME_BASIC"
+    truststoreFileName: "DigicertCA.jks"
+    truststoreFormat: "jks"
+    truststorePassword: "Add trust store password here"
+    destination: "sample-test-topic"
+    destinationQueue: "sample-test-queue"
+    errorDestination: "sample-test-error-topic"
+    errorDestinationQueue: "sample-test-error-queue"
+    deadLetterTopic: "sample-test-dead-letter-topic"
+    deadLetterQueue: "sample-test-dead-letter-queue"
+    maxRedeliveryCount: "3"
+    
+sfdc:
+  username: "Add SFDC username here"
+  password: "Add SFDC password*"
+  token: "SFDC Token to be added here"
+      
